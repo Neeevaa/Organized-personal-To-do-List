@@ -1,4 +1,4 @@
-# Personal To-Do List Organizer
+# Organized Personal To-Do List 
 
 A premium, highly interactive, and visually stunning To-Do List application built with **React** and **Vite**. The application features a glassmorphic sidebar layout, dynamic list categorization, priority tagging, inline task editing, and local storage persistence.
 

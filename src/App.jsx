@@ -97,24 +97,14 @@ const DEFAULT_TASKS = [
   { id: 'task-6', categoryId: 'cat-shopping', text: 'Organic milk & whole wheat bread', completed: false, priority: 'low', createdAt: Date.now() + 5 }
 ]
 
+const API_BASE_URL = 'http://localhost:8000'
+
 function App() {
   // --- STATE DECLARATIONS ---
-  
-  // Load data from LocalStorage on initialization, fallback to defaults
-  const [categories, setCategories] = useState(() => {
-    const saved = localStorage.getItem('todo_categories')
-    return saved ? JSON.parse(saved) : DEFAULT_CATEGORIES
-  })
-
-  const [tasks, setTasks] = useState(() => {
-    const saved = localStorage.getItem('todo_tasks')
-    return saved ? JSON.parse(saved) : DEFAULT_TASKS
-  })
-
-  const [selectedCategoryId, setSelectedCategoryId] = useState(() => {
-    const saved = localStorage.getItem('todo_selected_category_id')
-    return saved || 'cat-work'
-  })
+  const [categories, setCategories] = useState([])
+  const [tasks, setTasks] = useState([])
+  const [selectedCategoryId, setSelectedCategoryId] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
 
   // Inputs/Editing state
   const [newCategoryName, setNewCategoryName] = useState('')
@@ -126,104 +116,243 @@ function App() {
   const [editingTaskId, setEditingTaskId] = useState(null)
   const [editingTaskText, setEditingTaskText] = useState('')
 
-  // --- PERSIST TO LOCALSTORAGE ---
-  useEffect(() => {
-    localStorage.setItem('todo_categories', JSON.stringify(categories))
-  }, [categories])
+  // --- FETCH DATA FROM API ---
+  const fetchCategoriesAndTasks = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/lists`)
+      if (!res.ok) throw new Error('Failed to fetch lists')
+      const data = await res.json()
 
-  useEffect(() => {
-    localStorage.setItem('todo_tasks', JSON.stringify(tasks))
-  }, [tasks])
+      // If database is completely empty, initialize it with default lists and items
+      if (data.length === 0) {
+        await initializeDefaultData()
+        return
+      }
 
+      const loadedCategories = data.map(cat => ({ id: cat.id, name: cat.name }))
+      const loadedTasks = []
+      
+      data.forEach(cat => {
+        if (cat.items) {
+          cat.items.forEach(item => {
+            loadedTasks.push({
+              id: item.id,
+              categoryId: item.list_id,
+              text: item.text,
+              completed: item.completed,
+              priority: item.priority,
+              createdAt: new Date(item.created_at).getTime()
+            })
+          })
+        }
+      })
+
+      setCategories(loadedCategories)
+      setTasks(loadedTasks)
+
+      // Restore active category selection
+      const savedSelect = localStorage.getItem('todo_selected_category_id')
+      if (savedSelect && loadedCategories.some(cat => String(cat.id) === String(savedSelect))) {
+        const matched = loadedCategories.find(cat => String(cat.id) === String(savedSelect))
+        setSelectedCategoryId(matched.id)
+      } else if (loadedCategories.length > 0) {
+        setSelectedCategoryId(loadedCategories[0].id)
+      }
+    } catch (err) {
+      console.error("Error loading data from API:", err)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // --- AUTO-SEED DATA IN DATABASE IF EMPTY ---
+  const initializeDefaultData = async () => {
+    try {
+      // Create default lists
+      const resWork = await fetch(`${API_BASE_URL}/lists`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Work Tasks' })
+      })
+      const workCat = await resWork.json()
+
+      const resPers = await fetch(`${API_BASE_URL}/lists`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Personal Goals' })
+      })
+      const persCat = await resPers.json()
+
+      const resShop = await fetch(`${API_BASE_URL}/lists`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Shopping List' })
+      })
+      const shopCat = await resShop.json()
+
+      // Add default tasks
+      await fetch(`${API_BASE_URL}/lists/${workCat.id}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'Initialize Vite React project setup', priority: 'high' })
+      })
+      
+      const resTask2 = await fetch(`${API_BASE_URL}/lists/${workCat.id}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'Create sleek styling with Glassmorphism CSS', priority: 'high' })
+      })
+      const task2 = await resTask2.json()
+
+      await fetch(`${API_BASE_URL}/lists/${workCat.id}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'Implement PostgreSQL database integration', priority: 'medium' })
+      })
+
+      const resTask4 = await fetch(`${API_BASE_URL}/lists/${persCat.id}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'Go for a 30-minute evening run', priority: 'low' })
+      })
+      const task4 = await resTask4.json()
+
+      await fetch(`${API_BASE_URL}/lists/${persCat.id}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'Read two chapters of my book', priority: 'medium' })
+      })
+
+      await fetch(`${API_BASE_URL}/lists/${shopCat.id}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'Organic milk & whole wheat bread', priority: 'low' })
+      })
+
+      // Set some tasks to completed status to replicate defaults
+      await fetch(`${API_BASE_URL}/items/${task2.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed: true })
+      })
+      await fetch(`${API_BASE_URL}/items/${task4.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed: true })
+      })
+
+      // Reload
+      await fetchCategoriesAndTasks()
+    } catch (err) {
+      console.error("Error auto-seeding database:", err)
+      setIsLoading(false)
+    }
+  }
+
+  // Load from API on mount
   useEffect(() => {
-    localStorage.setItem('todo_selected_category_id', selectedCategoryId)
+    fetchCategoriesAndTasks()
+  }, [])
+
+  // Persist selected category ID locally
+  useEffect(() => {
+    if (selectedCategoryId) {
+      localStorage.setItem('todo_selected_category_id', selectedCategoryId)
+    }
   }, [selectedCategoryId])
 
   // --- CATEGORY FUNCTIONS ---
 
-  /**
-   * Adds a new category.
-   * @param {Event} e 
-   */
-  const handleAddCategory = (e) => {
+  const handleAddCategory = async (e) => {
     e.preventDefault()
     const trimmed = newCategoryName.trim()
     if (!trimmed) return
 
-    const newId = `cat-${Date.now()}`
-    const newCategory = { id: newId, name: trimmed }
-    
-    setCategories([...categories, newCategory])
-    setSelectedCategoryId(newId)
-    setNewCategoryName('')
+    try {
+      const res = await fetch(`${API_BASE_URL}/lists`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed })
+      })
+      if (!res.ok) throw new Error('Failed to create category')
+      const newCategory = await res.json()
+      
+      const formattedCat = { id: newCategory.id, name: newCategory.name }
+      setCategories([...categories, formattedCat])
+      setSelectedCategoryId(formattedCat.id)
+      setNewCategoryName('')
+    } catch (err) {
+      console.error("Error adding category:", err)
+      alert("Failed to add category. Please make sure the PostgreSQL server and FastAPI backend are running.")
+    }
   }
 
-  /**
-   * Starts renaming a category.
-   * @param {Object} category 
-   */
   const handleStartRenameCategory = (category, e) => {
-    e.stopPropagation() // Prevents clicking the item to select
+    e.stopPropagation()
     setEditingCategoryId(category.id)
     setEditingCategoryName(category.name)
   }
 
-  /**
-   * Saves the category's new name.
-   */
-  const handleSaveCategoryName = (id) => {
+  const handleSaveCategoryName = async (id) => {
     const trimmed = editingCategoryName.trim()
     if (!trimmed) return
 
-    setCategories(categories.map(cat => cat.id === id ? { ...cat, name: trimmed } : cat))
-    setEditingCategoryId(null)
-    setEditingCategoryName('')
+    try {
+      const res = await fetch(`${API_BASE_URL}/lists/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed })
+      })
+      if (!res.ok) throw new Error('Failed to update category')
+      const updatedCategory = await res.json()
+
+      setCategories(categories.map(cat => cat.id === id ? { ...cat, name: updatedCategory.name } : cat))
+      setEditingCategoryId(null)
+      setEditingCategoryName('')
+    } catch (err) {
+      console.error("Error renaming category:", err)
+      alert("Failed to rename category.")
+    }
   }
 
-  /**
-   * Cancels category renaming.
-   */
   const handleCancelRenameCategory = () => {
     setEditingCategoryId(null)
     setEditingCategoryName('')
   }
 
-  /**
-   * Deletes a category and all its tasks.
-   * @param {string} id 
-   * @param {Event} e 
-   */
-  const handleDeleteCategory = (id, e) => {
-    e.stopPropagation() // Prevents selection of category
+  const handleDeleteCategory = async (id, e) => {
+    e.stopPropagation()
     
     const confirmDelete = window.confirm(
       "Are you sure you want to delete this category? All its tasks will be permanently removed."
     )
     if (!confirmDelete) return
 
-    const remaining = categories.filter(cat => cat.id !== id)
-    
-    // If active category is being deleted, switch to another remaining one if available
-    if (selectedCategoryId === id) {
-      if (remaining.length > 0) {
-        setSelectedCategoryId(remaining[0].id)
-      } else {
-        setSelectedCategoryId('')
-      }
-    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/lists/${id}`, {
+        method: 'DELETE'
+      })
+      if (!res.ok) throw new Error('Failed to delete category')
 
-    // Filter categories and tasks
-    setCategories(remaining)
-    setTasks(tasks.filter(task => task.categoryId !== id))
+      const remaining = categories.filter(cat => cat.id !== id)
+      if (selectedCategoryId === id) {
+        if (remaining.length > 0) {
+          setSelectedCategoryId(remaining[0].id)
+        } else {
+          setSelectedCategoryId('')
+        }
+      }
+      setCategories(remaining)
+      setTasks(tasks.filter(task => task.categoryId !== id))
+    } catch (err) {
+      console.error("Error deleting category:", err)
+      alert("Failed to delete category.")
+    }
   }
 
   // --- TASK FUNCTIONS ---
 
-  /**
-   * Adds a new task to the selected category.
-   * @param {Event} e 
-   */
-  const handleAddTask = (e) => {
+  const handleAddTask = async (e) => {
     e.preventDefault()
     if (!currentCategory) {
       alert("Please select or create a category first!")
@@ -233,78 +362,110 @@ function App() {
     const trimmed = newTaskText.trim()
     if (!trimmed) return
 
-    const newTask = {
-      id: `task-${Date.now()}`,
-      categoryId: currentCategory.id,
-      text: trimmed,
-      completed: false,
-      priority: newPriority,
-      createdAt: Date.now()
+    try {
+      const res = await fetch(`${API_BASE_URL}/lists/${currentCategory.id}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: trimmed, priority: newPriority })
+      })
+      if (!res.ok) throw new Error('Failed to add task')
+      const newTask = await res.json()
+
+      const formattedTask = {
+        id: newTask.id,
+        categoryId: newTask.list_id,
+        text: newTask.text,
+        completed: newTask.completed,
+        priority: newTask.priority,
+        createdAt: new Date(newTask.created_at).getTime()
+      }
+
+      setTasks([...tasks, formattedTask])
+      setNewTaskText('')
+      setNewPriority('medium')
+    } catch (err) {
+      console.error("Error adding task:", err)
+      alert("Failed to add task.")
     }
-
-    setTasks([...tasks, newTask])
-    setNewTaskText('')
-    setNewPriority('medium') // reset to default
   }
 
-  /**
-   * Toggles task completion.
-   * @param {string} id 
-   */
-  const handleToggleTaskCompletion = (id) => {
-    setTasks(tasks.map(task => 
-      task.id === id ? { ...task, completed: !task.completed } : task
-    ))
+  const handleToggleTaskCompletion = async (id) => {
+    const task = tasks.find(t => t.id === id)
+    if (!task) return
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/items/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed: !task.completed })
+      })
+      if (!res.ok) throw new Error('Failed to toggle task completion')
+      const updatedTask = await res.json()
+
+      setTasks(tasks.map(t => 
+        t.id === id ? { ...t, completed: updatedTask.completed } : t
+      ))
+    } catch (err) {
+      console.error("Error toggling task completion:", err)
+      alert("Failed to update task completion.")
+    }
   }
 
-  /**
-   * Sets up editing state for a task.
-   * @param {Object} task 
-   */
   const handleStartEditTask = (task) => {
     setEditingTaskId(task.id)
     setEditingTaskText(task.text)
   }
 
-  /**
-   * Saves edited task.
-   */
-  const handleSaveTaskText = (id) => {
+  const handleSaveTaskText = async (id) => {
     const trimmed = editingTaskText.trim()
     if (!trimmed) return
 
-    setTasks(tasks.map(task => 
-      task.id === id ? { ...task, text: trimmed } : task
-    ))
-    setEditingTaskId(null)
-    setEditingTaskText('')
+    try {
+      const res = await fetch(`${API_BASE_URL}/items/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: trimmed })
+      })
+      if (!res.ok) throw new Error('Failed to edit task text')
+      const updatedTask = await res.json()
+
+      setTasks(tasks.map(t => 
+        t.id === id ? { ...t, text: updatedTask.text } : t
+      ))
+      setEditingTaskId(null)
+      setEditingTaskText('')
+    } catch (err) {
+      console.error("Error saving task text:", err)
+      alert("Failed to edit task.")
+    }
   }
 
-  /**
-   * Cancels editing a task.
-   */
   const handleCancelEditTask = () => {
     setEditingTaskId(null)
     setEditingTaskText('')
   }
 
-  /**
-   * Deletes a task (only if delete mode toggle is enabled).
-   * @param {string} id 
-   */
-  const handleDeleteTask = (id) => {
-    setTasks(tasks.filter(task => task.id !== id))
+  const handleDeleteTask = async (id) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/items/${id}`, {
+        method: 'DELETE'
+      })
+      if (!res.ok) throw new Error('Failed to delete task')
+
+      setTasks(tasks.filter(t => t.id !== id))
+    } catch (err) {
+      console.error("Error deleting task:", err)
+      alert("Failed to delete task.")
+    }
   }
 
   // --- COMPUTED STATES ---
   const currentCategory = categories.find(cat => cat.id === selectedCategoryId) || categories[0]
   
-  // Guard clause in case state load failed or category was deleted
   const activeCategoryId = currentCategory ? currentCategory.id : selectedCategoryId
 
   const filteredTasks = tasks.filter(task => task.categoryId === activeCategoryId)
   
-  // Sort tasks: Incomplete first, then completed. Inside each, sort by date created (oldest first)
   const sortedTasks = [...filteredTasks].sort((a, b) => {
     if (a.completed !== b.completed) {
       return a.completed ? 1 : -1
@@ -315,6 +476,20 @@ function App() {
   const completedCount = filteredTasks.filter(t => t.completed).length
   const totalCount = filteredTasks.length
   const completionPercentage = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
+
+  if (isLoading) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%)', color: '#ffffff', fontFamily: 'system-ui' }}>
+        <div style={{ width: '50px', height: '50px', border: '5px solid rgba(255,255,255,0.1)', borderTopColor: '#00d2ff', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+        <p style={{ marginTop: '20px', letterSpacing: '2px', textTransform: 'uppercase', fontSize: '12px', opacity: 0.8 }}>Loading Your To-Do List...</p>
+        <style>{`
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    )
+  }
 
   return (
     <div className="app-container">
