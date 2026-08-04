@@ -1210,8 +1210,8 @@ function App() {
             <BrandIconLogo />
           </div>
           <div>
-            <h1 className="brand-title">Synapse Manager</h1>
-            <p className="brand-subtitle">Life & Studies</p>
+            <h1 className="brand-title">Ryva</h1>
+            <p className="brand-subtitle">Personal Productivity App</p>
           </div>
         </div>
 

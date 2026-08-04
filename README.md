@@ -1,6 +1,6 @@
-# Organized Personal To-Do List 
+# Ryva - Personal Productivity App
 
-A premium, highly interactive, and visually stunning To-Do List application built with **React** and **Vite**. The application features a glassmorphic sidebar layout, dynamic list categorization, priority tagging, inline task editing, and local storage persistence.
+A premium, highly interactive, and feature-packed personal productivity application built with **React** and **Vite**. The application features a glassmorphic sidebar layout, dynamic list categorization, priority tagging, inline task editing, and local storage persistence.
 
 ---
 
