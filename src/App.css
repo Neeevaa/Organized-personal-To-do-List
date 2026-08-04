@@ -1890,6 +1890,325 @@
   flex-direction: column;
 }
 
+/* --- Holiday Mode Toggle Card --- */
+.holiday-toggle-card {
+  background: rgba(255, 152, 0, 0.08);
+  border: 1px solid rgba(255, 152, 0, 0.25);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  transition: all 0.2s ease;
+}
+
+.holiday-toggle-card.active {
+  background: rgba(255, 152, 0, 0.18);
+  border-color: rgba(255, 152, 0, 0.5);
+  box-shadow: 0 0 15px rgba(255, 152, 0, 0.15);
+}
+
+.holiday-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.holiday-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffb74d;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.holiday-sub {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+/* Switch styling */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: rgba(255, 255, 255, 0.15);
+  transition: .3s;
+  border-radius: 24px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .3s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: #ff9800;
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+/* --- Analytics Side Tab Styles --- */
+.analytics-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  animation: fadeIn var(--transition-normal);
+}
+
+.analytics-header-banner {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.analytics-stat-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  transition: all 0.2s ease;
+}
+
+.analytics-stat-card:hover {
+  border-color: var(--color-primary);
+  transform: translateY(-2px);
+}
+
+.analytics-stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  background: rgba(102, 252, 241, 0.1);
+  color: var(--color-primary);
+}
+
+.analytics-stat-info h4 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.analytics-stat-info .num-val {
+  font-size: 24px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.analytics-stat-info .sub-val {
+  font-size: 11px;
+  color: var(--color-success);
+}
+
+/* Graph Card */
+.graph-card {
+  background: rgba(16, 22, 34, 0.8);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.graph-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.graph-card-header h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.improvement-badge {
+  background: rgba(46, 196, 182, 0.15);
+  color: var(--color-success);
+  border: 1px solid rgba(46, 196, 182, 0.3);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* SVG & Bar Chart Styles */
+.chart-bars-container {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  height: 220px;
+  gap: 12px;
+  padding: 24px 12px 12px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  justify-content: flex-end;
+  gap: 8px;
+  position: relative;
+}
+
+.bar-fill-wrap {
+  width: 100%;
+  max-width: 42px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px 6px 0 0;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.bar-fill {
+  width: 100%;
+  background: linear-gradient(180deg, var(--color-primary) 0%, rgba(102, 252, 241, 0.3) 100%);
+  border-radius: 4px 4px 0 0;
+  transition: height 0.6s ease;
+}
+
+.bar-fill.holiday {
+  background: linear-gradient(180deg, #ffb74d 0%, rgba(255, 183, 77, 0.3) 100%);
+}
+
+.bar-pct-label {
+  position: absolute;
+  top: -22px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-text-main);
+}
+
+.bar-date-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+/* Past Days Completed Logs Grid */
+.past-days-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.past-days-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.past-day-card {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: all 0.2s ease;
+}
+
+.past-day-card:hover {
+  border-color: rgba(102, 252, 241, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.past-day-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 8px;
+}
+
+.past-day-date {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.past-day-count {
+  font-size: 11px;
+  color: var(--color-success);
+  background: var(--color-success-bg);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.past-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.past-task-item {
+  font-size: 12px;
+  color: var(--color-text-main);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.15);
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.past-task-item.done {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+.past-task-check {
+  color: var(--color-success);
+  font-weight: bold;
+}
+
 .scrum-date-badge .date-str {
   font-size: 14px;
   font-weight: 700;

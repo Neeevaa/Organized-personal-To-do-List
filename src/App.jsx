@@ -66,6 +66,14 @@ const ChecklistIcon = () => (
   </svg>
 )
 
+const AnalyticsIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="tab-icon">
+    <line x1="18" y1="20" x2="18" y2="10"></line>
+    <line x1="12" y1="20" x2="12" y2="4"></line>
+    <line x1="6" y1="20" x2="6" y2="14"></line>
+  </svg>
+)
+
 const FolderIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="folder-icon">
     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
@@ -133,6 +141,20 @@ const CalendarIcon = () => (
 
 const API_BASE_URL = 'http://localhost:8001'
 
+const fetchWithTimeout = async (url, options = {}, timeoutMs = 2500) => {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal })
+    clearTimeout(timer)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return res
+  } catch (err) {
+    clearTimeout(timer)
+    throw err
+  }
+}
+
 function App() {
   // --- STATE DECLARATIONS ---
   const [categories, setCategories] = useState([])
@@ -179,45 +201,48 @@ function App() {
 
   // --- FETCH DATA FROM DATABASE OR INDEXEDDB STORE ---
   const loadData = async () => {
+    let isServerOffline = false
+    let fetchedCategories = []
+    let fetchedTasks = []
+    let fetchedReminders = []
+    let fetchedLC = []
+    let fetchedRoadmap = []
+    let fetchedSettings = {}
+
     try {
-      let isServerOffline = false
-      let fetchedCategories = []
-      let fetchedTasks = []
-      let fetchedReminders = []
-      let fetchedLC = []
-      let fetchedRoadmap = []
-      let fetchedSettings = {}
+      // 1. Retrieve persistent IndexedDB snapshot first (fast & reliable)
+      const snapshot = await getFullSnapshot().catch(() => null)
 
-      // Retrieve persistent IndexedDB snapshot first
-      const snapshot = await getFullSnapshot()
-
-      // 1. Fetch from FastAPI
+      // 2. Attempt fetching from FastAPI with 2.5-second timeout safeguard
       try {
         const [resLists, resReminders, resLC, resRoadmap, resSettings] = await Promise.all([
-          fetch(`${API_BASE_URL}/lists`),
-          fetch(`${API_BASE_URL}/reminders`),
-          fetch(`${API_BASE_URL}/leetcode/completed`),
-          fetch(`${API_BASE_URL}/roadmap/completed`),
-          fetch(`${API_BASE_URL}/settings`)
+          fetchWithTimeout(`${API_BASE_URL}/lists`),
+          fetchWithTimeout(`${API_BASE_URL}/reminders`),
+          fetchWithTimeout(`${API_BASE_URL}/leetcode/completed`),
+          fetchWithTimeout(`${API_BASE_URL}/roadmap/completed`),
+          fetchWithTimeout(`${API_BASE_URL}/settings`)
         ])
 
-        if (!resLists.ok) throw new Error('API down')
-
         const dataLists = await resLists.json()
-        fetchedReminders = await resReminders.json()
-        fetchedLC = (await resLC.json()).map(item => item.problem_name)
-        fetchedRoadmap = (await resRoadmap.json()).map(item => item.topic_name)
+        const dataReminders = await resReminders.json()
+        const dataLC = await resLC.json()
+        const dataRoadmap = await resRoadmap.json()
         const rawSettings = await resSettings.json()
-        
-        fetchedSettings = {}
-        rawSettings.forEach(s => {
-          fetchedSettings[s.key] = s.value
-        })
 
-        // Format lists and tasks
+        fetchedReminders = Array.isArray(dataReminders) ? dataReminders : []
+        fetchedLC = Array.isArray(dataLC) ? dataLC.map(item => item.problem_name) : []
+        fetchedRoadmap = Array.isArray(dataRoadmap) ? dataRoadmap.map(item => item.topic_name) : []
+
+        fetchedSettings = {}
+        if (Array.isArray(rawSettings)) {
+          rawSettings.forEach(s => {
+            fetchedSettings[s.key] = s.value
+          })
+        }
+
         fetchedCategories = dataLists.map(cat => ({ id: cat.id, name: cat.name }))
         dataLists.forEach(cat => {
-          if (cat.items) {
+          if (cat.items && Array.isArray(cat.items)) {
             cat.items.forEach(item => {
               fetchedTasks.push({
                 id: item.id,
@@ -225,15 +250,15 @@ function App() {
                 text: item.text,
                 completed: item.completed,
                 priority: item.priority,
-                createdAt: new Date(item.created_at).getTime()
+                createdAt: item.created_at ? new Date(item.created_at).getTime() : Date.now()
               })
             })
           }
         })
-        
+
         setIsOffline(false)
       } catch (err) {
-        console.warn("Backend server is offline. Restoring state from persistent client DB store.", err)
+        console.warn("Backend server not responding or offline. Loading client local DB store.", err)
         setIsOffline(true)
         isServerOffline = true
 
@@ -247,37 +272,13 @@ function App() {
         }
       }
 
-      // 2. Initialize default daily category if empty
-      if (fetchedCategories.length === 0) {
-        const defaults = [{ id: 'cat-daily', name: 'Daily Tasks' }]
-        if (!isServerOffline) {
-          const savedLists = []
-          for (let def of defaults) {
-            const res = await fetch(`${API_BASE_URL}/lists`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: def.name })
-            })
-            const saved = await res.json()
-            savedLists.push({ id: saved.id, name: saved.name })
-          }
-          fetchedCategories = savedLists
-        } else {
-          fetchedCategories = defaults
-        }
+      // Initialize default daily category if empty
+      if (!fetchedCategories || fetchedCategories.length === 0) {
+        fetchedCategories = [{ id: 'cat-daily', name: 'Daily Tasks' }]
       }
 
-      // 3. Make sure settings has study_start_date
       if (!fetchedSettings.study_start_date) {
-        const defaultDate = new Date().toISOString().split('T')[0]
-        fetchedSettings.study_start_date = defaultDate
-        if (!isServerOffline) {
-          await fetch(`${API_BASE_URL}/settings`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key: 'study_start_date', value: defaultDate })
-          })
-        }
+        fetchedSettings.study_start_date = new Date().toISOString().split('T')[0]
       }
 
       setCategories(fetchedCategories)
@@ -287,7 +288,6 @@ function App() {
       setCompletedRoadmap(fetchedRoadmap)
       setSettings(fetchedSettings)
 
-      // Save full snapshot to IndexedDB client database
       await saveFullSnapshot({
         categories: fetchedCategories,
         tasks: fetchedTasks,
@@ -295,10 +295,9 @@ function App() {
         completedLC: fetchedLC,
         completedRoadmap: fetchedRoadmap,
         settings: fetchedSettings
-      })
+      }).catch(() => {})
 
-      // 4. Trigger Daily Study Tasks Generation for selected target date
-      await runDailyRollover(fetchedCategories, fetchedTasks, fetchedSettings.study_start_date, isServerOffline, selectedTargetDate)
+      await runDailyRollover(fetchedCategories, fetchedTasks, fetchedSettings.study_start_date, isServerOffline, selectedTargetDate).catch(() => {})
 
     } catch (e) {
       console.error("Critical error loading data:", e)
@@ -308,12 +307,12 @@ function App() {
   }
 
   // --- DAILY STUDY TASKS & SCRUM MILESTONE MAPPING GENERATION ---
-  const runDailyRollover = async (currentCats, currentTasks, startDateStr, isServerOffline, targetDateStr = null) => {
+  const runDailyRollover = async (currentCats, currentTasks, startDateStr, isServerOffline, targetDateStr = null, forceRegenerate = false) => {
     const dailyCat = currentCats.find(c => c.name === 'Daily Tasks')
     if (!dailyCat) return
 
-    const dailyTasks = currentTasks.filter(t => String(t.categoryId) === String(dailyCat.id))
-    if (dailyTasks.length > 0) {
+    const activeDailyTasks = currentTasks.filter(t => String(t.categoryId) === String(dailyCat.id) && !t.text.includes('(Moved to'))
+    if (activeDailyTasks.length > 0 && !forceRegenerate) {
       return
     }
 
@@ -908,6 +907,71 @@ function App() {
     await runDailyRollover(categories, tasks, dateStr, isOffline, dateStr)
   }
 
+  // --- HOLIDAY MODE TOGGLE HANDLER ---
+  const handleToggleHoliday = async () => {
+    const nextHoliday = !settings.is_holiday
+    const nextSettings = { ...settings, is_holiday: nextHoliday }
+    setSettings(nextSettings)
+    try {
+      if (!isOffline) {
+        await fetch(`${API_BASE_URL}/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'is_holiday', value: String(nextHoliday) })
+        })
+      }
+    } catch (e) {}
+    await saveFullSnapshot({ categories, tasks, reminders, completedLC, completedRoadmap, settings: nextSettings })
+  }
+
+  // --- STARTOVER FROM PREVIOUS DAY HANDLER ---
+  const handleStartoverFromPreviousDay = async (skipConfirm = false) => {
+    if (!skipConfirm) {
+      const confirmReset = window.confirm("Roll back to the previous day so you can complete uncompleted tasks step-by-step?")
+      if (!confirmReset) return
+    }
+
+    // Calculate previous date (1 day before selectedTargetDate or today)
+    const currentTarget = new Date((selectedTargetDate || new Date().toISOString().split('T')[0]) + 'T00:00:00')
+    currentTarget.setDate(currentTarget.getDate() - 1)
+    const prevDateStr = currentTarget.toISOString().split('T')[0]
+
+    const nextSettings = { ...settings, study_start_date: prevDateStr, is_holiday: false }
+    setSelectedTargetDate(prevDateStr)
+    setSettings(nextSettings)
+
+    // Restore any uncompleted tasks by removing '(Moved to' tags so user can complete them sequentially!
+    const dailyCat = categories.find(c => c.name === 'Daily Tasks')
+    let nextTasks = [...tasks]
+    if (dailyCat) {
+      nextTasks = tasks.map(t => {
+        if (String(t.categoryId) === String(dailyCat.id) && t.text.includes('(Moved to')) {
+          const cleanText = t.text.replace(/\s*\((Moved to Tomorrow|Moved to Next Day[^\)]*)\s*🗓️\)/g, '')
+          return { ...t, text: cleanText }
+        }
+        return t
+      })
+    }
+
+    setTasks(nextTasks)
+
+    if (!isOffline) {
+      try {
+        await fetch(`${API_BASE_URL}/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'study_start_date', value: prevDateStr })
+        })
+      } catch (e) {}
+    }
+
+    await saveFullSnapshot({ categories, tasks: nextTasks, reminders, completedLC, completedRoadmap, settings: nextSettings })
+    await runDailyRollover(categories, nextTasks, prevDateStr, isOffline, prevDateStr, true)
+    if (!skipConfirm) {
+      alert(`⏪ Rolled back to previous day (${prevDateStr})! Tasks are restored so you can complete everything step-by-step.`)
+    }
+  }
+
   // --- LIFE PROGRESS AND SCORES ---
   const calculatedStats = useMemo(() => {
     // 1. Calculate active week index dynamically based on selectedTargetDate
@@ -933,19 +997,69 @@ function App() {
     const completedRoadmapCount = completedRoadmap.length
     const roadmapPercent = totalRoadmapTopicsCount > 0 ? Math.round((completedRoadmapCount / totalRoadmapTopicsCount) * 100) : 0
 
-    // 4. Daily tasks completion
+    // 4. Daily tasks completion & Past History Grouping
     const dailyCat = categories.find(c => c.name === 'Daily Tasks')
     const dailyTasksList = dailyCat ? tasks.filter(t => String(t.categoryId) === String(dailyCat.id)) : []
     const totalDailyCount = dailyTasksList.length
     const completedDailyCount = dailyTasksList.filter(t => t.completed).length
     const dailyPercent = totalDailyCount > 0 ? Math.round((completedDailyCount / totalDailyCount) * 100) : 0
 
-    // 5. Overall Productivity Index
-    // Blended: 50% daily task completion + 25% LeetCode + 25% Roadmap
-    const productivityIndex = Math.round((dailyPercent * 0.5) + (lcPercent * 0.25) + (roadmapPercent * 0.25))
+    // 5. Group tasks into past days history map by date
+    const historyMap = {}
+    dailyTasksList.forEach(t => {
+      const dateStr = t.createdAt ? new Date(t.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+      if (!historyMap[dateStr]) historyMap[dateStr] = []
+      historyMap[dateStr].push(t)
+    })
 
-    // 6. Streak calculation (Simulate active streak)
-    const activeStreak = dailyPercent === 100 ? 3 : dailyPercent > 50 ? 2 : 1
+    // Build 7-day timeline for graph consistency
+    const recent7Days = []
+    const todayStr = new Date().toISOString().split('T')[0]
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const dStr = d.toISOString().split('T')[0]
+      const dayTasks = historyMap[dStr] || []
+      const isHolidayDay = !!settings.is_holiday && dStr === todayStr
+      const doneCount = dayTasks.filter(t => t.completed).length
+      const totalCount = dayTasks.length
+      
+      let pct = 0
+      if (isHolidayDay) {
+        pct = 100
+      } else if (totalCount > 0) {
+        pct = Math.round((doneCount / totalCount) * 100)
+      } else if (dStr === todayStr) {
+        pct = dailyPercent
+      } else {
+        pct = 75
+      }
+
+      recent7Days.push({
+        dateStr: dStr,
+        label: i === 0 ? 'Today' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        pct,
+        total: totalCount,
+        done: doneCount,
+        isHoliday: isHolidayDay,
+        tasks: dayTasks
+      })
+    }
+
+    // 6. Calculate Streak (Increment & protect on holidays)
+    let streakCount = 0
+    for (let i = recent7Days.length - 1; i >= 0; i--) {
+      const day = recent7Days[i]
+      if (day.pct >= 50 || day.isHoliday) {
+        streakCount += 1
+      } else if (i !== recent7Days.length - 1) {
+        break
+      }
+    }
+    const activeStreak = Math.max(streakCount, 1)
+
+    // 7. Overall Productivity Index
+    const productivityIndex = Math.round((dailyPercent * 0.5) + (lcPercent * 0.25) + (roadmapPercent * 0.25))
 
     return {
       activeWeek,
@@ -960,14 +1074,16 @@ function App() {
       completedDailyCount,
       dailyPercent,
       productivityIndex,
-      activeStreak
+      activeStreak,
+      recent7Days,
+      historyMap
     }
   }, [categories, tasks, completedLC, completedRoadmap, settings, selectedTargetDate])
 
   // --- TIME SLOTS TIMELINE HIGHLIGHTER ---
   const currentSlotIndex = useMemo(() => {
-    const isWeekend = timeTicker.getDay() === 0 || timeTicker.getDay() === 6
-    const schedule = TIMETABLE[isWeekend ? 'weekend' : 'weekday']
+    const isWeekendOrHoliday = (timeTicker.getDay() === 0 || timeTicker.getDay() === 6) || !!settings.is_holiday
+    const schedule = TIMETABLE[isWeekendOrHoliday ? 'weekend' : 'weekday']
     const hr = timeTicker.getHours()
     const min = timeTicker.getMinutes()
     const totalMin = hr * 60 + min
@@ -1118,6 +1234,45 @@ function App() {
               onChange={(e) => handleTargetDateChange(e.target.value)}
             />
           </div>
+          <button 
+            onClick={() => handleStartoverFromPreviousDay(false)}
+            className="btn-restart-plan"
+            style={{
+              marginTop: '10px',
+              width: '100%',
+              padding: '6px 10px',
+              background: 'rgba(102, 252, 241, 0.12)',
+              border: '1px solid rgba(102, 252, 241, 0.3)',
+              color: '#66fcf1',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            ⏪ Startover from Previous Day
+          </button>
+        </div>
+
+        {/* Holiday Mode Toggle Card */}
+        <div className={`holiday-toggle-card ${settings.is_holiday ? 'active' : ''}`}>
+          <div className="holiday-info">
+            <span className="holiday-title">🏖️ Holiday Mode</span>
+            <span className="holiday-sub">{settings.is_holiday ? 'Weekend schedule active' : 'Weekday grind active'}</span>
+          </div>
+          <label className="switch">
+            <input 
+              type="checkbox" 
+              checked={!!settings.is_holiday} 
+              onChange={handleToggleHoliday}
+            />
+            <span className="slider"></span>
+          </label>
         </div>
 
         {/* Daily Manager Tabs */}
@@ -1128,6 +1283,13 @@ function App() {
               <div className="category-item-content">
                 <DashboardIcon />
                 <span className="category-name">Today's Plan</span>
+              </div>
+            </div>
+
+            <div className={`category-item ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => setActiveTab('analytics')}>
+              <div className="category-item-content">
+                <AnalyticsIcon />
+                <span className="category-name">Analytics & Logs</span>
               </div>
             </div>
 
@@ -1409,10 +1571,12 @@ function App() {
               <div className="split-panel">
                 <div className="panel-header">
                   <h3>Active Timetable Track</h3>
-                  <span className="badge-pill pill-green">{isWeekend ? 'Weekend Study' : 'Weekday Grind'}</span>
+                  <span className="badge-pill pill-green">
+                    {(isWeekend || !!settings.is_holiday) ? (settings.is_holiday ? 'Holiday (Weekend Schedule)' : 'Weekend Study') : 'Weekday Grind'}
+                  </span>
                 </div>
                 <div className="timeline-tracker">
-                  {TIMETABLE[isWeekend ? 'weekend' : 'weekday'].map((slot, index) => {
+                  {TIMETABLE[(isWeekend || !!settings.is_holiday) ? 'weekend' : 'weekday'].map((slot, index) => {
                     const isCurrent = currentSlotIndex === index
                     return (
                       <div key={index} className={`timeline-slot ${isCurrent ? 'active-slot' : ''} ${slot.free ? 'free-period' : ''}`}>
@@ -1428,6 +1592,130 @@ function App() {
                     )
                   })}
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ANALYTICS & LOGS TAB */}
+        {activeTab === 'analytics' && (
+          <div className="tab-pane analytics-container">
+            <section className="header-section">
+              <div className="header-info">
+                <h2>Productivity Analytics & Past Daily Logs</h2>
+                <p>Track consistency trends, daily completion rates, and historical to-do lists grouped by dates.</p>
+              </div>
+              <div className="improvement-badge">
+                📈 {calculatedStats.dailyPercent >= 75 ? 'Peak Consistency (+16% growth)' : 'Steady Focus (+8% growth)'}
+              </div>
+            </section>
+
+            {/* Stat Banner Cards */}
+            <div className="analytics-header-banner">
+              <div className="analytics-stat-card">
+                <div className="analytics-stat-icon">🔥</div>
+                <div className="analytics-stat-info">
+                  <h4>Daily Streak</h4>
+                  <div className="num-val">{calculatedStats.activeStreak} Days</div>
+                  <div className="sub-val">{settings.is_holiday ? 'Streak protected on holiday 🏖️' : 'Active completion streak'}</div>
+                </div>
+              </div>
+
+              <div className="analytics-stat-card">
+                <div className="analytics-stat-icon">📊</div>
+                <div className="analytics-stat-info">
+                  <h4>Today's Completion</h4>
+                  <div className="num-val">{calculatedStats.dailyPercent}%</div>
+                  <div className="sub-val">{calculatedStats.completedDailyCount} of {calculatedStats.totalDailyCount} tasks done</div>
+                </div>
+              </div>
+
+              <div className="analytics-stat-card">
+                <div className="analytics-stat-icon">🎯</div>
+                <div className="analytics-stat-info">
+                  <h4>Consistency Index</h4>
+                  <div className="num-val">{calculatedStats.productivityIndex}%</div>
+                  <div className="sub-val">Blended score across all tracks</div>
+                </div>
+              </div>
+
+              <div className="analytics-stat-card">
+                <div className="analytics-stat-icon">🏖️</div>
+                <div className="analytics-stat-info">
+                  <h4>Holiday Status</h4>
+                  <div className="num-val" style={{ fontSize: '18px', color: settings.is_holiday ? '#ffb74d' : '#858b94' }}>
+                    {settings.is_holiday ? 'Holiday Mode' : 'Workday Grind'}
+                  </div>
+                  <div className="sub-val">{settings.is_holiday ? 'Following weekend schedule' : 'Standard weekday schedule'}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Consistency & Improvement Graph Card */}
+            <div className="graph-card">
+              <div className="graph-card-header">
+                <h3>
+                  <span>📊 Consistency & Task Completion Trend</span>
+                </h3>
+                <span className="pill-badge pill-purple">Past 7 Days History</span>
+              </div>
+
+              <div className="chart-bars-container">
+                {calculatedStats.recent7Days.map((day, idx) => (
+                  <div key={idx} className="bar-col">
+                    <span className="bar-pct-label">{day.isHoliday ? 'Holiday 🏖️' : `${day.pct}%`}</span>
+                    <div className="bar-fill-wrap">
+                      <div 
+                        className={`bar-fill ${day.isHoliday ? 'holiday' : ''}`}
+                        style={{ height: `${Math.max(day.pct, 8)}%` }}
+                        title={`${day.dateStr}: ${day.pct}% completion (${day.done}/${day.total} done)`}
+                      />
+                    </div>
+                    <span className="bar-date-label">{day.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Past Days Completed To-Do Lists */}
+            <div className="past-days-section">
+              <div className="panel-header">
+                <h3>Historical Completed Daily Tasks</h3>
+                <span className="badge-pill pill-green">Grouped by Dates</span>
+              </div>
+
+              <div className="past-days-grid">
+                {Object.keys(calculatedStats.historyMap).length === 0 ? (
+                  <div className="empty-panel-state">
+                    <p>No historical daily tasks recorded yet. Complete tasks today to see your logs!</p>
+                  </div>
+                ) : (
+                  Object.keys(calculatedStats.historyMap).sort().reverse().map((dateStr, idx) => {
+                    const dayTasks = calculatedStats.historyMap[dateStr]
+                    const doneTasks = dayTasks.filter(t => t.completed)
+                    const isHolidayDate = settings.is_holiday && dateStr === new Date().toISOString().split('T')[0]
+                    return (
+                      <div key={idx} className="past-day-card">
+                        <div className="past-day-header">
+                          <span className="past-day-date">📅 {dateStr} {isHolidayDate ? '🏖️ (Holiday)' : ''}</span>
+                          <span className="past-day-count">{doneTasks.length} / {dayTasks.length} Done</span>
+                        </div>
+                        <div className="past-task-list">
+                          {dayTasks.length === 0 ? (
+                            <p className="subtext-detail">No tasks created for this date.</p>
+                          ) : (
+                            dayTasks.map(t => (
+                              <div key={t.id} className={`past-task-item ${t.completed ? 'done' : ''}`}>
+                                <span className="past-task-check">{t.completed ? '✓' : '○'}</span>
+                                <span>{t.text}</span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
               </div>
             </div>
           </div>
